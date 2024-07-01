@@ -159,7 +159,7 @@
             ssButton.value = "Take Screenshot";
             
             ssButton.onclick = function () {
-                BABYLON.Tools.CreateScreenshotUsingRenderTarget(engine, camera, {precision: 1.0});  
+                BABYLON.Tools.CreateScreenshotUsingRenderTarget(engine, camera, {precision: 0.5, width: 1024, height:1024, antialiasing:true});  
             };          
 
             return scene;
