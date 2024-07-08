@@ -117,10 +117,6 @@
 
             ground.material = groundMaterial;
 
-            // Create a standard post-process pipeline
-
-            var postProcess0 = new BABYLON.BlurPostProcess("Blur", new BABYLON.Vector2(1.0, 1.0), 32, 1.0, camera);
-
             // Skybox
             const skybox = BABYLON.MeshBuilder.CreateBox("skybox", {size:1000.0}, scene);
             const skyboxMaterial = new BABYLON.BackgroundMaterial("skybox", scene);
@@ -132,35 +128,101 @@
             skybox.material = skyboxMaterial;     
 
 
+            // Create a standard post-process pipeline
+            var postProcess0 = new BABYLON.PassPostProcess("Scene copy", 1.0, camera);  
+            var postProcess1 = new BABYLON.BlurPostProcess("Blur", new BABYLON.Vector2(1.0, 1.0), 9, 1.0, camera);
+            
+            BABYLON.Effect.ShadersStore["customFragmentShader"] = `
+            #ifdef GL_ES
+                precision highp float;
+            #endif
+
+            // Samplers
+            varying vec2 vUV;
+            uniform sampler2D textureSampler;
+
+            // Parameters
+            uniform vec2 screenSize;
+            uniform float threshold;
+
+            void main(void) 
+            {
+                vec2 texelSize = vec2(1.0 / screenSize.x, 1.0 / screenSize.y);
+                vec4 baseColor = texture2D(textureSampler, vUV);
+
+
+                if (baseColor.r < threshold) {
+                    gl_FragColor = baseColor;
+                } else {
+                    gl_FragColor = vec4(vec3(1.0) - baseColor.xyz, 1.0);
+                }
+            }
+            `;
+
+            var postProcess2 = new BABYLON.PostProcess("My custom post process", "custom", ["screenSize", "threshold"], null, 0.25, camera);
+            postProcess2.onApply = function (effect) {
+                effect.setFloat2("screenSize", postProcess2.width, postProcess2.height);
+                effect.setFloat("threshold", 0.70);
+            };
+        
+
             // GUI
+            var bgCamera = new BABYLON.ArcRotateCamera("BGCamera", Math.PI / 2 + Math.PI / 7, Math.PI / 2, 100,
+                new BABYLON.Vector3(0, 20, 0),
+                scene);
+            bgCamera.layerMask = 0x10000000;
+            
+            scene.activeCameras = [camera, bgCamera];
+
             var advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
-            // advancedTexture.layer.layerMask = 0x10000000;
+            advancedTexture.layer.layerMask = 0x10000000;
 
             var panel = new BABYLON.GUI.StackPanel();
-            panel.width = "800px";
+            panel.width = "200px";
             panel.isVertical = true;
-            panel.paddingRight = "20px";
+            panel.paddingRight = "10px";
             panel.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
             panel.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
             advancedTexture.addControl(panel);
 
-           //add screenshot button
-            var ssButton = document.getElementById("takescreenshot");
-            if (ssButton == null) {
-               ssButton = document.createElement("input");
-               document.body.appendChild(ssButton);
-            }
+            //add effects switch
+
+            var usePostProcess = true;
             
-            ssButton.id = "takescreenshot";
-            ssButton.type = "button";
-            ssButton.style.position = "fixed";
-            ssButton.style.right = "0px";
-            ssButton.style.top = "30px";
-            ssButton.value = "Take Screenshot";
-            
-            ssButton.onclick = function () {
+            var checkbox = new BABYLON.GUI.Checkbox();
+            checkbox.width = "20px";
+            checkbox.height = "20px";
+            checkbox.isChecked = true;
+            checkbox.color = "green";
+            checkbox.onIsCheckedChangedObservable.add(function(value) {
+                if(value){
+                    scene.activeCameras[0].attachPostProcess(postProcess0);
+                    scene.activeCameras[0].attachPostProcess(postProcess1);
+                    scene.activeCameras[0].attachPostProcess(postProcess2);
+                }else{
+                    scene.activeCameras[0].detachPostProcess(postProcess0);
+                    scene.activeCameras[0].detachPostProcess(postProcess1);
+                    scene.activeCameras[0].detachPostProcess(postProcess2);
+                }
+            });
+
+            var header = BABYLON.GUI.Control.AddHeader(checkbox, "Use effects", "180px", { isHorizontal: true, controlFirst: true});
+            header.height = "30px";
+            header.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+
+            panel.addControl(header);  
+
+            //add screenshot button
+            var ssButton = BABYLON.GUI.Button.CreateSimpleButton("but", "Take Screenshot");
+            ssButton.width = 1.0;
+            ssButton.height = "40px";
+            ssButton.color = "white";
+            ssButton.background = "green";     
+            ssButton.onPointerClickObservable.add(() => {
                 BABYLON.Tools.CreateScreenshotUsingRenderTarget(engine, camera, {precision: 1.0, width: 1024, height:1024, antialiasing:true});  
-            };          
+            })
+
+            panel.addControl(ssButton);          
 
             return scene;
         };
