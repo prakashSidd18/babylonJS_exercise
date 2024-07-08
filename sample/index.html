@@ -130,12 +130,13 @@
 
             // Create a standard post-process pipeline
             var postProcess0 = new BABYLON.PassPostProcess("Scene copy", 1.0, camera);  
-            var postProcess1 = new BABYLON.BlurPostProcess("Blur", new BABYLON.Vector2(1.0, 1.0), 9, 1.0, camera);
+            var postProcess1 = new BABYLON.BlurPostProcess("Blur", new BABYLON.Vector2(1.0, 0.0), 32, 1.0, camera);
             
             BABYLON.Effect.ShadersStore["customFragmentShader"] = `
             #ifdef GL_ES
                 precision highp float;
             #endif
+            #define SIGMOID_CONTRAST 12.0
 
             // Samplers
             varying vec2 vUV;
@@ -144,25 +145,41 @@
             // Parameters
             uniform vec2 screenSize;
             uniform float threshold;
+            float brightness(in float R, in float G, in float B){
+               return sqrt(
+                  R * R * .241 + 
+                  G * G * .691 + 
+                  B * B * .068);
+            }
+
+            vec4 contrast(vec4 x, float s) {
+                return 1.0 / (1.0 + exp(-s * (x - 0.5)));    
+            }
 
             void main(void) 
             {
                 vec2 texelSize = vec2(1.0 / screenSize.x, 1.0 / screenSize.y);
                 vec4 baseColor = texture2D(textureSampler, vUV);
 
-
-                if (baseColor.r < threshold) {
+                float intensity = brightness(baseColor.r, baseColor.g, baseColor.b);
+                if (intensity > (3.0*threshold)) {
+                    //gl_FragColor = vec4(vec3(1.0) - baseColor.xyz, 1.0);
                     gl_FragColor = baseColor;
-                } else {
-                    gl_FragColor = vec4(vec3(1.0) - baseColor.xyz, 1.0);
+                }else if (intensity > (2.0*threshold)) {
+                    gl_FragColor = contrast(baseColor, SIGMOID_CONTRAST);;
+                } else if (intensity > (threshold)) {
+                    gl_FragColor = baseColor;
+                } else{
+                    gl_FragColor = baseColor;
                 }
+                
             }
             `;
 
             var postProcess2 = new BABYLON.PostProcess("My custom post process", "custom", ["screenSize", "threshold"], null, 0.25, camera);
             postProcess2.onApply = function (effect) {
                 effect.setFloat2("screenSize", postProcess2.width, postProcess2.height);
-                effect.setFloat("threshold", 0.70);
+                effect.setFloat("threshold", 0.25);
             };
         
 
