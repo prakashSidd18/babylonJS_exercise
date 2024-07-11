@@ -164,9 +164,7 @@
 
                 float intensity = brightness(baseColor.r, baseColor.g, baseColor.b);
                 if (intensity > (2.0*threshold)) {
-                    gl_FragColor = contrast(baseColor, SIGMOID_CONTRAST);;
-                } else if (intensity > (threshold)) {
-                    gl_FragColor = baseColor;
+                    gl_FragColor = contrast(baseColor, SIGMOID_CONTRAST);
                 } else{
                     gl_FragColor = baseColor;
                 }
@@ -174,9 +172,61 @@
             }
             `;
 
-            var postProcess2 = new BABYLON.PostProcess("Post process 1", "custom", ["screenSize", "threshold"], null, 0.25, camera);
+            var postProcess2 = new BABYLON.PostProcess("Contrast", "custom", ["screenSize", "threshold"], null, 0.25, camera);
             postProcess2.onApply = function (effect) {
                 effect.setFloat2("screenSize", postProcess2.width, postProcess2.height);
+                effect.setFloat("threshold", 0.25);
+            };
+
+            BABYLON.Effect.ShadersStore["customBlurFragmentShader"] = `
+            #ifdef GL_ES
+                precision highp float;
+            #endif
+            #define SIGMOID_CONTRAST 12.0
+
+            // Samplers
+            varying vec2 vUV;
+            uniform sampler2D textureSampler;
+
+            // Parameters
+            uniform vec2 screenSize;
+            uniform float threshold;
+
+            float brightness(in float R, in float G, in float B){
+               return sqrt(
+                  R * R * .241 + 
+                  G * G * .691 + 
+                  B * B * .068);
+            }
+
+            vec4 directionalBlur(in vec2 direction, in float intensity, in int sampleCount)
+            {
+                vec4 color = vec4(0.0);  
+                
+                for (int i=1; i<=sampleCount; i++)
+                {
+                    color += texture2D(textureSampler, vUV+float(i)*intensity/float(sampleCount)*direction);
+                }
+              
+                return color/float(sampleCount);    
+            }
+
+            void main(void) 
+            {
+                vec4 baseColor = texture2D(textureSampler, vUV);
+
+                float intensity = brightness(baseColor.r, baseColor.g, baseColor.b);
+                if (intensity > (2.0*threshold)) {
+                    gl_FragColor = directionalBlur(vec2(0, 1), 0.1, 64);
+                } else{
+                    gl_FragColor = baseColor;
+                }
+            }
+            `;
+
+            var postProcess3 = new BABYLON.PostProcess("Custom Blur", "customBlur", ["screenSize", "threshold"], null, 0.25, camera);
+            postProcess3.onApply = function (effect) {
+                effect.setFloat2("screenSize", postProcess3.width, postProcess3.height);
                 effect.setFloat("threshold", 0.25);
             };
 
@@ -208,11 +258,64 @@
             }
             `;
 
-            const mask = new BABYLON.Texture("../textures/watermark.png", scene);
+            var postProcess4 = new BABYLON.PostProcess("Negative", "negative", ["screenSize"], null, 0.25, camera);
+            postProcess4.onApply = function (effect) {
+                effect.setFloat2("screenSize", postProcess4.width, postProcess4.height);
+            };
 
-            var postProcess3 = new BABYLON.PostProcess("Negative", "negative", ["screenSize"], null, 0.25, camera);
-            postProcess3.onApply = function (effect) {
-                effect.setFloat2("screenSize", postProcess3.width, postProcess3.height);
+            // from https://www.shadertoy.com/view/7dyBRG
+            BABYLON.Effect.ShadersStore["warpFragmentShader"] = `
+            #ifdef GL_ES
+                precision highp float;
+            #endif
+
+
+            #define GOLDEN_ANGLE 2.39996322972865332f
+
+            #define NUM_TAPS 8
+            #define BLUR_STRENGTH 0.5f
+
+            // Samplers
+            varying vec2 vUV;
+            uniform sampler2D textureSampler;
+            
+            // Parameters
+            uniform vec2 screenSize;
+            uniform float time;
+
+            float brightness(in float R, in float G, in float B){
+               return sqrt(
+                  R * R * .241 + 
+                  G * G * .691 + 
+                  B * B * .068);
+            }
+
+            void main(void) 
+            {
+                vec2 texelSize = vec2(1.0 / screenSize.x, 1.0 / screenSize.y);
+                vec4 baseColor = texture2D(textureSampler, vUV);
+
+                vec3 sum = vec3(0.f, 0.f, 0.f);
+                float coc = BLUR_STRENGTH * sin(float(time));
+                
+                for (int i = 0; i < NUM_TAPS; i++) {
+                    float radius = coc * sqrt(float(i) / float(NUM_TAPS));
+                    float angle = float(i) * GOLDEN_ANGLE;
+                    vec2 offset = radius * vec2(sin(angle), cos(angle));
+                    
+                    sum += texture2D(textureSampler, (vUV + offset)).xyz;
+                }
+                gl_FragColor = vec4(sum / float(NUM_TAPS), 1.0);
+                                
+            }
+            `;
+
+            var time = 0.0;
+            var postProcess5 = new BABYLON.PostProcess("Time Warp", "warp", ["screenSize", "time"], null, 1.0, camera);
+            postProcess5.onApply = function (effect) {
+                effect.setFloat2("screenSize", postProcess5.width, postProcess5.height);
+                effect.setFloat("time", time);
+                time += 0.01;
             };
         
 
@@ -228,7 +331,7 @@
             advancedTexture.layer.layerMask = 0x10000000;
 
             var panel = new BABYLON.GUI.StackPanel();
-            panel.width = "200px";
+            panel.width = "300px";
             panel.isVertical = true;
             panel.paddingRight = "10px";
             panel.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
@@ -262,10 +365,16 @@
                 panel.addControl(header);  
             }
 
-            // addCheckbox("No effects", postProcess0, true);
-            addCheckbox("Global Blur", postProcess1, true);
-            addCheckbox("High Contrast + Selective Blur", postProcess2, true);
-            addCheckbox("Negative", postProcess3, true);
+            addCheckbox("Horizontal Blur", postProcess1, false);
+            scene.activeCameras[0].detachPostProcess(postProcess1);
+            addCheckbox("Selective Contrast", postProcess2, false);
+            scene.activeCameras[0].detachPostProcess(postProcess2);
+            addCheckbox("Selective Blur / Smudge", postProcess3, false);
+            scene.activeCameras[0].detachPostProcess(postProcess3);
+            addCheckbox("Negative", postProcess4, false);
+            scene.activeCameras[0].detachPostProcess(postProcess4);
+            addCheckbox("Time Warp", postProcess5, false);
+            scene.activeCameras[0].detachPostProcess(postProcess5);
 
             //add screenshot button
             var ssButton = BABYLON.GUI.Button.CreateSimpleButton("but", "Take Screenshot");
