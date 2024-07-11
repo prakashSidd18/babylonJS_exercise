@@ -145,6 +145,7 @@
             // Parameters
             uniform vec2 screenSize;
             uniform float threshold;
+
             float brightness(in float R, in float G, in float B){
                return sqrt(
                   R * R * .241 + 
@@ -162,10 +163,7 @@
                 vec4 baseColor = texture2D(textureSampler, vUV);
 
                 float intensity = brightness(baseColor.r, baseColor.g, baseColor.b);
-                if (intensity > (3.0*threshold)) {
-                    //gl_FragColor = vec4(vec3(1.0) - baseColor.xyz, 1.0);
-                    gl_FragColor = baseColor;
-                }else if (intensity > (2.0*threshold)) {
+                if (intensity > (2.0*threshold)) {
                     gl_FragColor = contrast(baseColor, SIGMOID_CONTRAST);;
                 } else if (intensity > (threshold)) {
                     gl_FragColor = baseColor;
@@ -176,10 +174,45 @@
             }
             `;
 
-            var postProcess2 = new BABYLON.PostProcess("My custom post process", "custom", ["screenSize", "threshold"], null, 0.25, camera);
+            var postProcess2 = new BABYLON.PostProcess("Post process 1", "custom", ["screenSize", "threshold"], null, 0.25, camera);
             postProcess2.onApply = function (effect) {
                 effect.setFloat2("screenSize", postProcess2.width, postProcess2.height);
                 effect.setFloat("threshold", 0.25);
+            };
+
+            BABYLON.Effect.ShadersStore["negativeFragmentShader"] = `
+            #ifdef GL_ES
+                precision highp float;
+            #endif
+
+            // Samplers
+            varying vec2 vUV;
+            uniform sampler2D textureSampler;
+            
+            // Parameters
+            uniform vec2 screenSize;
+
+            float brightness(in float R, in float G, in float B){
+               return sqrt(
+                  R * R * .241 + 
+                  G * G * .691 + 
+                  B * B * .068);
+            }
+
+            void main(void) 
+            {
+                vec2 texelSize = vec2(1.0 / screenSize.x, 1.0 / screenSize.y);
+                vec4 baseColor = texture2D(textureSampler, vUV);
+
+                gl_FragColor = vec4(vec3(1.0) - baseColor.xyz, 1.0);;                
+            }
+            `;
+
+            const mask = new BABYLON.Texture("../textures/watermark.png", scene);
+
+            var postProcess3 = new BABYLON.PostProcess("Negative", "negative", ["screenSize"], null, 0.25, camera);
+            postProcess3.onApply = function (effect) {
+                effect.setFloat2("screenSize", postProcess3.width, postProcess3.height);
             };
         
 
@@ -202,32 +235,37 @@
             panel.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
             advancedTexture.addControl(panel);
 
-            //add effects switch
-
-            var usePostProcess = true;
+            //add effects switches
             
-            var checkbox = new BABYLON.GUI.Checkbox();
-            checkbox.width = "20px";
-            checkbox.height = "20px";
-            checkbox.isChecked = true;
-            checkbox.color = "green";
-            checkbox.onIsCheckedChangedObservable.add(function(value) {
-                if(value){
-                    scene.activeCameras[0].attachPostProcess(postProcess0);
-                    scene.activeCameras[0].attachPostProcess(postProcess1);
-                    scene.activeCameras[0].attachPostProcess(postProcess2);
-                }else{
-                    scene.activeCameras[0].detachPostProcess(postProcess0);
-                    scene.activeCameras[0].detachPostProcess(postProcess1);
-                    scene.activeCameras[0].detachPostProcess(postProcess2);
+            var addCheckbox = function(text, postProcess, initialValue, left) {
+                var checkbox = new BABYLON.GUI.Checkbox();
+                checkbox.width = "20px";
+                checkbox.height = "20px";
+                checkbox.isChecked = initialValue;
+                checkbox.color = "green";
+                checkbox.onIsCheckedChangedObservable.add(function(value) {
+                    if(value){
+                        scene.activeCameras[0].attachPostProcess(postProcess);
+                    }else{
+                        scene.activeCameras[0].detachPostProcess(postProcess);
+                    }
+                });
+
+                var header = BABYLON.GUI.Control.AddHeader(checkbox, text, "180px", { isHorizontal: true, controlFirst: true});
+                header.height = "30px";
+                header.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+
+                if (left) {
+                    header.left = left;
                 }
-            });
 
-            var header = BABYLON.GUI.Control.AddHeader(checkbox, "Use effects", "180px", { isHorizontal: true, controlFirst: true});
-            header.height = "30px";
-            header.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+                panel.addControl(header);  
+            }
 
-            panel.addControl(header);  
+            // addCheckbox("No effects", postProcess0, true);
+            addCheckbox("Global Blur", postProcess1, true);
+            addCheckbox("High Contrast + Selective Blur", postProcess2, true);
+            addCheckbox("Negative", postProcess3, true);
 
             //add screenshot button
             var ssButton = BABYLON.GUI.Button.CreateSimpleButton("but", "Take Screenshot");
